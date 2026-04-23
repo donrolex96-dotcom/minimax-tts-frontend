@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MiniMax Multi-Voice Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0a;color:#f0f0f0;font-family:monospace;padding:20px;min-height:100vh}
+h1{font-size:28px;margin-bottom:8px;color:#e8ff3c}
+.sub{color:#888;font-size:12px;margin-bottom:32px;letter-spacing:0.1em}
+.line-card{background:#111;border:1px solid #252525;border-radius:3px;margin-bottom:8px;display:flex;align-items:stretch}
+.line-num{background:#181818;color:#444;font-size:10px;padding:8px;display:flex;align-items:center;justify-content:center;min-width:32px;border-right:1px solid #252525}
+textarea{flex:1;background:transparent;border:none;outline:none;color:#f0f0f0;font-family:monospace;font-size:13px;padding:12px;resize:none;min-height:60px}
+select{background:#111;border:none;border-left:1px solid #252525;color:#888;font-family:monospace;font-size:10px;padding:0 10px;cursor:pointer;min-width:140px}
+.del-btn{background:none;border:none;border-left:1px solid #252525;color:#444;cursor:pointer;padding:0 14px;font-size:18px}
+.del-btn:hover{color:#ff5c3c;background:rgba(255,92,60,0.08)}
+.add-btn{width:100%;padding:10px;background:transparent;border:1px dashed #333;color:#888;font-family:monospace;font-size:10px;letter-spacing:0.15em;cursor:pointer;margin-top:4px;border-radius:3px}
+.add-btn:hover{border-color:#e8ff3c;color:#e8ff3c}
+.gen-btn{width:100%;padding:18px;background:#e8ff3c;color:#0a0a0a;border:none;font-family:monospace;font-size:13px;font-weight:700;letter-spacing:0.15em;cursor:pointer;border-radius:3px;margin-top:16px}
+.gen-btn:hover{opacity:0.9}
+.gen-btn:disabled{background:#222;color:#444;cursor:not-allowed}
+.progress{background:#111;border:1px solid #252525;border-radius:3px;padding:16px;margin-top:16px;display:none}
+.progress-bar-track{height:3px;background:#252525;border-radius:2px;margin:8px 0}
+.progress-bar-fill{height:100%;background:#e8ff3c;border-radius:2px;transition:width 0.4s;width:0%}
+.progress-text{font-size:10px;color:#888;letter-spacing:0.1em}
+.error{background:rgba(255,92,60,0.08);border:1px solid rgba(255,92,60,0.3);border-radius:3px;padding:12px;color:#ff5c3c;font-size:12px;margin-top:16px;display:none}
+.output{background:#111;border:1px solid #252525;border-radius:3px;padding:20px;margin-top:24px;display:none}
+.output-label{font-size:10px;color:#3cff8a;letter-spacing:0.2em;margin-bottom:16px}
+audio{width:100%;margin-bottom:12px;filter:invert(1)}
+.dl-btn{display:block;width:100%;padding:12px;background:transparent;border:1px solid #333;color:#f0f0f0;font-family:monospace;font-size:10px;letter-spacing:0.15em;cursor:pointer;text-align:center;text-decoration:none;border-radius:3px}
+.dl-btn:hover{border-color:#3cff8a;color:#3cff8a}
+</style>
+</head>
+<body>
+<h1>MULTI·VOICE TTS STUDIO</h1>
+<p class="sub">ASSIGN VOICES → WRITE SCRIPT → SYNTHESIZE → DOWNLOAD MP3</p>
+
+<div id="lines"></div>
+<button class="add-btn" onclick="addLine()">+ ADD LINE</button>
+<button class="gen-btn" id="genBtn" onclick="generate()">◆ GENERATE AUDIO</button>
+
+<div class="progress" id="progress">
+  <div class="progress-text" id="progressText">SYNTHESIZING AUDIO... <span id="pct">0%</span></div>
+  <div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
+  <div class="progress-text">Connecting to Render backend...</div>
+</div>
+
+<div class="error" id="error"></div>
+
+<div class="output" id="output">
+  <div class="output-label">● OUTPUT READY</div>
+  <audio id="player" controls></audio>
+  <a class="dl-btn" id="dlBtn" href="#" download="multi_voice_export.mp3">↓ DOWNLOAD MP3</a>
+</div>
+
+<script>
+// UPDATED: Using your specific characters and actual Render URL
+const VOICES = ["Sae Chabashira", "Haruka San", "Father Assistant"];
+const API = "https://minimax-tts-backend-6e0z.onrender.com";
+
+let lines = [{id:1,text:"",voice:VOICES[0]}];
+let nextId = 2;
+
+function render(){
+  const container = document.getElementById("lines");
+  container.innerHTML = lines.map((l,i)=>`
+    <div class="line-card">
+      <div class="line-num">${String(i+1).padStart(2,"0")}</div>
+      <textarea placeholder="Line ${i+1}..." oninput="updateLine(${l.id},'text',this.value)">${l.text}</textarea>
+      <select onchange="updateLine(${l.id},'voice',this.value)">
+        ${VOICES.map(v=>`<option value="${v}" ${l.voice===v?"selected":""}>${v}</option>`).join("")}
+      </select>
+      <button class="del-btn" onclick="deleteLine(${l.id})" ${lines.length===1?"disabled":""}>×</button>
+    </div>
+  `).join("");
+}
+
+function addLine(){
+  lines.push({id:nextId++,text:"",voice:VOICES[0]});
+  render();
+}
+
+function deleteLine(id){
+  if(lines.length===1)return;
+  lines=lines.filter(l=>l.id!==id);
+  render();
+}
+
+function updateLine(id,field,val){
+  lines=lines.map(l=>l.id===id?{...l,[field]:val}:l);
+}
+
+let progressInterval;
+function startProgress(){
+  let p=0;
+  document.getElementById("progress").style.display="block";
+  progressInterval=setInterval(()=>{
+    p+=Math.random()*5+1;
+    if(p>95)p=95;
+    document.getElementById("progressFill").style.width=p+"%";
+    document.getElementById("pct").textContent=Math.round(p)+"%";
+  },500);
+}
+
+function stopProgress(val){
+  clearInterval(progressInterval);
+  document.getElementById("progressFill").style.width=val+"%";
+  document.getElementById("pct").textContent=val+"%";
+}
+
+async function generate(){
+  const valid=lines.filter(l=>l.text.trim());
+  if(!valid.length){showError("Please enter some text for at least one line.");return;}
+  
+  document.getElementById("error").style.display="none";
+  document.getElementById("output").style.display="none";
+  document.getElementById("genBtn").disabled=true;
+  document.getElementById("genBtn").textContent="GENERATING...";
+  startProgress();
+
+  try{
+    const resp=await fetch(API+"/generate-audio",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({lines:valid.map(l=>({text:l.text.trim(),voice:l.voice}))})
+    });
+    
+    if(!resp.ok){
+      const err=await resp.json();
+      throw new Error(err.detail || "The server is currently waking up or encountered an error.");
+    }
+    
+    const data=await resp.json();
+    stopProgress(100);
+    
+    const url=API + data.download_url;
+    document.getElementById("player").src=url;
+    document.getElementById("dlBtn").href=url;
+    document.getElementById("output").style.display="block";
+    document.getElementById("progress").style.display="none";
+  }catch(e){
+    stopProgress(0);
+    document.getElementById("progress").style.display="none";
+    showError(e.message || "Connection failed. Please try again in 30 seconds.");
+  }finally{
+    document.getElementById("genBtn").disabled=false;
+    document.getElementById("genBtn").textContent="◆ GENERATE AUDIO";
+  }
+}
+
+function showError(msg){
+  const el=document.getElementById("error");
+  el.textContent="! "+msg;
+  el.style.display="block";
+}
+
+render();
+</script>
+</body>
+</html>
